@@ -12,32 +12,33 @@ import os
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# FastAPI instance
 app = FastAPI(title="Heart Disease Prediction API")
 
-# Enable CORS
+# Enable CORS for frontend access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Replace "*" with frontend URL in prod
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Model path configuration
-MODEL_PATH = os.getenv('MODEL_PATH', 'updatedmodel.pkl')
+# Load model
+MODEL_PATH = os.getenv('MODEL_PATH', 'backend/updatedmodel.pkl')  # Adjusted path to work with render structure
 
-# Load the model
 try:
     with open(MODEL_PATH, 'rb') as f:
         model = pickle.load(f)
-    logger.info(f"Successfully loaded model from {MODEL_PATH}")
+    logger.info(f"✅ Model loaded from {MODEL_PATH}")
 except FileNotFoundError:
     model = None
-    logger.warning(f"Model file not found at {MODEL_PATH}. Using mock predictions.")
+    logger.warning(f"⚠️ Model not found at {MODEL_PATH}, using mock predictions.")
 except Exception as e:
     model = None
-    logger.error(f"Error loading model: {str(e)}")
+    logger.error(f"❌ Error loading model: {e}")
 
+# Define input schema
 class AssessmentData(BaseModel):
     age: int
     sex: Literal['male', 'female']
@@ -53,9 +54,9 @@ class AssessmentData(BaseModel):
     coloredVessels: int
     thal: Literal['normal', 'fixedDefect', 'reversibleDefect']
 
+# Preprocess input
 def preprocess_data(data: AssessmentData) -> np.ndarray:
     try:
-        # Convert categorical variables to numerical
         sex_encoded = 1 if data.sex == 'male' else 0
         cp_map = {'typical': 0, 'atypical': 1, 'nonAnginal': 2, 'asymptomatic': 3}
         slope_map = {'upsloping': 0, 'flat': 1, 'downsloping': 2}
@@ -68,7 +69,7 @@ def preprocess_data(data: AssessmentData) -> np.ndarray:
             data.bloodPressure,
             data.cholesterol,
             1 if data.fastingBloodSugar > 120 else 0,
-            0,  # resting ECG (simplified)
+            0,  # restingECG (simplified or ignored)
             data.maxHeartRate,
             1 if data.exerciseAngina else 0,
             data.oldpeak,
@@ -79,41 +80,43 @@ def preprocess_data(data: AssessmentData) -> np.ndarray:
         
         return np.array(features).reshape(1, -1)
     except Exception as e:
-        logger.error(f"Error preprocessing data: {str(e)}")
+        logger.error(f"Error in preprocessing: {e}")
         raise
 
+# Predict endpoint
 @app.post("/predict")
 async def predict(data: AssessmentData):
     try:
-        if model is None:
-            logger.warning("Using mock prediction (model not loaded)")
-            return {"risk": 50 + np.random.normal(0, 10)}
-        
-        # Preprocess the input data
         features = preprocess_data(data)
-        logger.info("Successfully preprocessed input data")
+        logger.info("Input preprocessed successfully.")
         
-        # Make prediction
+        if model is None:
+            mock_risk = float(50 + np.random.normal(0, 10))
+            logger.warning("Mock prediction used.")
+            return {"risk": round(mock_risk, 2)}
+
         prediction = model.predict_proba(features)[0][1]
         risk = float(prediction * 100)
-        logger.info(f"Prediction successful: {risk}%")
-        
-        return {"risk": risk}
+        logger.info(f"Prediction completed: {risk:.2f}% risk")
+        return {"risk": round(risk, 2)}
+    
     except Exception as e:
-        logger.error(f"Prediction error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Prediction failed: {e}")
+        raise HTTPException(status_code=500, detail="Prediction failed")
 
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Global exception: {str(exc)}")
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "An unexpected error occurred"}
-    )
-
+# Health check endpoint
 @app.get("/health")
 async def health_check():
     return {
         "status": "healthy",
         "model_loaded": model is not None
     }
+
+# Global error handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled error: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
