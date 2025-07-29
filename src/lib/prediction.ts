@@ -1,4 +1,4 @@
-import type { DetailedAssessment } from '../types';
+import type { DetailedAssessment } from '../pages';
 
 const API_URL = 'https://heart-attack-prediction-using-ml.onrender.com';
 
