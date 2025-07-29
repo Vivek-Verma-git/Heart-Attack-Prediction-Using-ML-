@@ -112,6 +112,11 @@ async def health_check():
         "model_loaded": model is not None
     }
 
+# ✅ Root route to fix 404
+@app.get("/")
+async def root():
+    return {"message": "Heart Disease Prediction API is live!"}
+
 # Global error handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
